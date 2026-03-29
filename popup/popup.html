@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 Invaders</h1>
+    <p class="subtitle">pnote.eu → Komoot overlay</p>
+
+    <button id="load" class="btn btn-primary">📍 Load Invaders</button>
+
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="toggle" checked />
+        <span class="slider"></span>
+      </label>
+      <span id="toggle-label">Visible</span>
+    </div>
+
+    <p id="status" class="status">Open a Komoot map, then click Load.</p>
+
+    <hr />
+
+    <h2>🔑 Flash Invaders</h2>
+    <div class="settings-body">
+      <label for="uid">API UID</label>
+      <input type="text" id="uid" placeholder="e.g. cb0153a7-9ee4-4058-a9ae-702bee1" />
+      <small>Your Flash Invaders uid — found invaders show as 🟢 green dots.</small>
+
+      <div class="toggle-row" style="margin-top:10px;">
+        <label class="switch">
+          <input type="checkbox" id="hide-found" />
+          <span class="slider"></span>
+        </label>
+        <span id="hide-found-label">Show found</span>
+      </div>
+      <small id="found-info" class="found-info"></small>
+    </div>
+
+    <hr />
+
+    <button id="refresh" class="btn btn-secondary">🔄 Clear cache &amp; reload</button>
+
+    <hr />
+    <h2>📐 Calibration</h2>
+    <div class="settings-body">
+      <label for="offset-x">Left offset: <strong id="offset-x-val">0</strong> px</label>
+      <input type="range" id="offset-x" min="0" max="800" value="400" step="5" />
+      <small>Move the 🟣 magenta crosshair to the map center. Enable debug to see it.</small>
+    </div>
+
+    <hr />
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="debug" />
+        <span class="slider"></span>
+      </label>
+      <span id="debug-label">🐛 Debug overlay</span>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

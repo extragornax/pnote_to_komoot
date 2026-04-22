@@ -6,9 +6,7 @@ It is designed to help you quickly see which invaders are around your current Ko
 
 ## Features
 
-- **Komoot overlay** – draws invader markers directly over the Komoot map
-- **Visible-area filtering** – only invaders inside the current map area are displayed
-- **Auto-refresh while moving** – markers reposition as you pan / zoom the map
+- **Native Komoot overlay** – markers are drawn on the Komoot MapLibre map, so they zoom, pan, rotate, and pitch with the map natively
 - **Optional Flash Invaders UID support** – load your found invaders from the Flash Invaders gallery API
 - **Hide found invaders** – optionally hide invaders already flashed with your UID
 - **Status colors**
@@ -16,9 +14,9 @@ It is designed to help you quickly see which invaders are around your current Ko
   - 🟠 `damaged`
   - 🟢 `found` / flashed
   - `destroyed` invaders are not shown
-- **Fast hover tooltip** – shows the invader name immediately on hover
+- **Hover tooltip** – shows the invader name and status flags on hover
 - **Instagram shortcut** – clicking a dot opens the Instagram hashtag search for that invader
-- **Local cache** – recently fetched GeoJSON is cached so markers can be shown again quickly on reload
+- **Local cache** – the fetched invader dataset is cached for 24h so markers appear instantly on reload
 
 ## Installation (Temporary / Development)
 
@@ -36,7 +34,7 @@ It is designed to help you quickly see which invaders are around your current Ko
 1. Open a Komoot map
 2. Open the extension popup
 3. Click **Load Invaders**
-4. Pan / zoom the map as needed
+4. Pan / zoom the map – markers stay glued to their geographic locations
 5. Use the **Visible** toggle to temporarily show or hide the overlay
 
 ### Flash Invaders UID / token support
@@ -81,56 +79,74 @@ This is useful for quickly checking photos, confirmations, or historical posts r
 ```text
 ┌──────────┐      ┌──────────────┐      ┌──────────────┐
 │  popup   │ ───▶ │ content.js   │ ───▶ │background.js │
-│ settings │      │ Komoot tab   │      │ fetch logic  │
+│ settings │      │   bridge     │      │ fetch logic  │
 └──────────┘      └──────┬───────┘      └──────┬───────┘
                          │                     │
-                         │                     ├── pnote.eu invaders.json
-                         │                     └── Flash Invaders gallery API
+                         ▼                     ├── pnote.eu invaders.json
+                  ┌──────────────┐              └── Flash Invaders gallery API
+                  │  inject.js   │
+                  │  (page ctx)  │
+                  │ native map   │
+                  │  + layer     │
+                  └──────────────┘
                          ▼
-                  Overlay rendered over Komoot
+              Overlay rendered on Komoot's
+                native MapLibre instance
 ```
 
-### Current runtime flow
+### Runtime flow
 
-1. The popup sends settings such as visibility, UID and hide-found preference
-2. `content/content.js` reads the Komoot URL viewport (`@lat,lng,zoomz`)
-3. It computes the visible bounds and asks `background/background.js` for invaders in range
-4. `background/background.js` fetches the full invader dataset from `pnote.eu`
-5. If a UID is present, it also fetches your flashed invaders from the Flash Invaders API
-6. Matching invaders are converted to GeoJSON with a `found` flag
-7. `content/content.js` renders the overlay and updates it as the map moves
+1. The popup sends settings (visibility, UID, hide-found) to the content script.
+2. `content/content.js` relays **Load Invaders** to `background/background.js`.
+3. `background/background.js` fetches the full invader dataset from `pnote.eu`. If a UID is provided, it also fetches your flashed invaders from the Flash Invaders API and tags each feature with `found: true/false`.
+4. The GeoJSON result is cached locally (24h TTL) and pushed to `content/inject.js`.
+5. `content/inject.js`, running in the **page context**, reaches into Komoot's MapLibre instance and renders the markers as a native GeoJSON layer with expression-based styling (green = found, orange = damaged, red = default; destroyed is filtered out).
 
-`content/inject.js` is still injected into the page context for map inspection / native integration experiments, but the current visible overlay is rendered by `content/content.js`.
+Because rendering goes through MapLibre's own coordinate system, markers stay aligned at any zoom, pitch, or rotation with no manual calibration.
 
 ## Project Structure
 
 ```text
 pnote_to_komoot/
-├── manifest.json          # Firefox extension manifest
+├── manifest.json          # Firefox extension manifest (MV3)
 ├── background/
-│   └── background.js      # Fetches and filters pnote.eu + Flash Invaders API data
+│   └── background.js      # Fetches pnote.eu + Flash Invaders API data
 ├── content/
-│   ├── content.js         # Main Komoot overlay renderer and page logic
-│   └── inject.js          # Page-context helper for map/native integration attempts
+│   ├── content.js         # Thin bridge: popup ⇄ background ⇄ inject.js
+│   └── inject.js          # Page-context renderer; owns the native map layer
 ├── popup/
-│   ├── popup.html         # Popup UI (load, visibility, UID, debug, calibration)
+│   ├── popup.html         # Popup UI (load, visibility, UID, hide-found)
 │   ├── popup.js           # Popup behavior and saved settings
 │   └── popup.css          # Popup styles
 ├── icons/
 │   ├── icon-16.png
 │   ├── icon-48.png
 │   └── icon-128.png
+├── PRIVACY.md             # Privacy policy
+├── CHANGELOG.md           # Release notes
 └── README.md
 ```
 
+## Privacy
+
+See [PRIVACY.md](./PRIVACY.md). In short: no telemetry, no analytics, no data sent to the developer. The extension only talks to `pnote.eu` (anonymous) and — only if you explicitly provide a UID — to the Flash Invaders API.
+
+## Building / publishing
+
+```bash
+npm install -g web-ext
+web-ext lint
+web-ext sign --api-key=$AMO_JWT_ISSUER --api-secret=$AMO_JWT_SECRET --channel=listed
+```
+
+Every `web-ext sign` run requires a new `version` in `manifest.json`; bump it before re-submitting.
+
 ## Notes
 
-- The extension is currently tested as a Firefox temporary add-on
+- Built against Manifest V3 (Firefox 115+)
 - Data is fetched in the background script to avoid page-level CORS issues
 - Invader locations come from:
   - `https://pnote.eu/projects/invaders/map/invaders.json?nocache=...`
 - Found invaders are optionally retrieved from:
   - `https://api.space-invaders.com/flashinvaders_v3_pas_trop_predictif/api/gallery?uid=...`
 - The extension caches the last GeoJSON payload in `browser.storage.local` for faster redisplay
-- Overlay alignment can be adjusted with the popup calibration slider if Komoot’s layout shifts the visible map area
-

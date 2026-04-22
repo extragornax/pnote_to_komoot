@@ -1,0 +1,9 @@
+# web-ext build + sign artifacts
+web-ext-artifacts/
+.amo-upload-uuid
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp

@@ -1,8 +1,17 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Pnote Invaders on Komoot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Overlay Space Invader locations from pnote.eu onto Komoot maps",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "pnote-to-komoot@extragornax",
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -10,11 +19,13 @@
   },
   "permissions": [
     "storage",
-    "activeTab",
+    "activeTab"
+  ],
+  "host_permissions": [
     "https://pnote.eu/*",
     "https://api.space-invaders.com/*"
   ],
-  "browser_action": {
+  "action": {
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png"
@@ -23,18 +34,27 @@
     "default_popup": "popup/popup.html"
   },
   "background": {
-    "scripts": ["background/background.js"],
-    "persistent": false
+    "scripts": ["background/background.js"]
   },
   "content_scripts": [
     {
-      "matches": ["*://www.komoot.com/*", "*://www.komoot.fr/*", "*://www.komoot.de/*"],
+      "matches": [
+        "*://www.komoot.com/*",
+        "*://www.komoot.fr/*",
+        "*://www.komoot.de/*"
+      ],
       "js": ["content/content.js"],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
-    "content/inject.js"
+    {
+      "resources": ["content/inject.js"],
+      "matches": [
+        "*://www.komoot.com/*",
+        "*://www.komoot.fr/*",
+        "*://www.komoot.de/*"
+      ]
+    }
   ]
 }
-

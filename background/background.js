@@ -1,18 +1,17 @@
 /* ============================================================
  *  background/background.js
- *  Handles cross-origin fetches to pnote.eu and the Flash
- *  Invaders API on behalf of the content script.
+ *  Cross-origin fetcher for pnote.eu + Flash Invaders API.
+ *  Returns the full dataset as GeoJSON; MapLibre renders
+ *  only what's on screen, so no bounds filtering is needed.
  * ============================================================ */
 
-// In-memory caches
 let invadersCache = null;
 let fetchPromise = null;
-let foundCache = null;       // Set of found invader names (e.g. "PA_593")
-let foundFetchPromise = null;
 
-// ================================================================
-//  PNOTE.EU — All invader locations
-// ================================================================
+let foundCache = new Map();     // uid → Set<string>
+let foundFetchPromise = new Map();
+
+// ── pnote.eu: all invaders ───────────────────────────────────
 
 async function fetchAllInvaders() {
   if (invadersCache) return invadersCache;
@@ -24,15 +23,15 @@ async function fetchAllInvaders() {
         "https://pnote.eu/projects/invaders/map/invaders.json?nocache=" + Date.now()
       );
       if (!res.ok) {
-        console.error("[pnote-komoot] HTTP error", res.status);
+        console.error("[pnote-komoot] pnote HTTP", res.status);
         return [];
       }
       const data = await res.json();
-      invadersCache = normalizeData(data);
+      invadersCache = normalize(data);
       console.log(`[pnote-komoot] Loaded ${invadersCache.length} invaders from pnote.eu`);
       return invadersCache;
     } catch (e) {
-      console.error("[pnote-komoot] Fetch failed", e);
+      console.error("[pnote-komoot] pnote fetch failed:", e);
       return [];
     } finally {
       fetchPromise = null;
@@ -42,11 +41,8 @@ async function fetchAllInvaders() {
   return fetchPromise;
 }
 
-function normalizeData(raw) {
-  if (!raw || typeof raw !== "object") {
-    console.warn("[pnote-komoot] Unexpected data format", raw);
-    return [];
-  }
+function normalize(raw) {
+  if (!raw || typeof raw !== "object") return [];
   const entries = Array.isArray(raw) ? raw : Object.values(raw);
   return entries
     .map(item => ({
@@ -57,144 +53,93 @@ function normalizeData(raw) {
       hint: item.hint || null,
       instagramUrl: item.instagramUrl || ""
     }))
-    .filter(inv => inv.lat != null && inv.lng != null);
+    .filter(i => i.lat != null && i.lng != null);
 }
 
-// ================================================================
-//  FLASH INVADERS API — Found invaders for a user
-// ================================================================
+// ── Flash Invaders: user's flashed invaders ──────────────────
 
 async function fetchFoundInvaders(uid) {
   if (!uid) return null;
-  if (foundCache) return foundCache;
-  if (foundFetchPromise) return foundFetchPromise;
+  if (foundCache.has(uid)) return foundCache.get(uid);
+  if (foundFetchPromise.has(uid)) return foundFetchPromise.get(uid);
 
-  foundFetchPromise = (async () => {
+  const p = (async () => {
     try {
       const url = `https://api.space-invaders.com/flashinvaders_v3_pas_trop_predictif/api/gallery?uid=${encodeURIComponent(uid)}`;
-      console.log("[pnote-komoot] Fetching found invaders from Flash Invaders API…");
       const res = await fetch(url);
       if (!res.ok) {
-        console.error("[pnote-komoot] Flash Invaders API HTTP error", res.status);
+        console.error("[pnote-komoot] Flash Invaders HTTP", res.status);
         return null;
       }
       const data = await res.json();
-
-      // Extract found invader names into a Set
-      const foundSet = new Set();
+      const set = new Set();
       const invaders = data.invaders;
-
       if (Array.isArray(invaders)) {
-        // Array of objects like [ { "PA_593": { name: "PA_593", ... } }, ... ]
         for (const entry of invaders) {
-          if (entry && typeof entry === "object") {
-            for (const key of Object.keys(entry)) {
-              foundSet.add(key.toUpperCase());
-              const inner = entry[key];
-              if (inner && inner.name) foundSet.add(inner.name.toUpperCase());
-            }
+          if (!entry || typeof entry !== "object") continue;
+          for (const k of Object.keys(entry)) {
+            set.add(k.toUpperCase());
+            const inner = entry[k];
+            if (inner && inner.name) set.add(String(inner.name).toUpperCase());
           }
         }
       } else if (invaders && typeof invaders === "object") {
-        // Object keyed by name: { "PA_593": { name: "PA_593", ... }, ... }
-        for (const key of Object.keys(invaders)) {
-          foundSet.add(key.toUpperCase());
-          const inner = invaders[key];
-          if (inner && inner.name) foundSet.add(inner.name.toUpperCase());
+        for (const k of Object.keys(invaders)) {
+          set.add(k.toUpperCase());
+          const inner = invaders[k];
+          if (inner && inner.name) set.add(String(inner.name).toUpperCase());
         }
       }
-
-      foundCache = foundSet;
-      console.log(`[pnote-komoot] Found ${foundSet.size} flashed invaders for this user`);
-      return foundSet;
+      foundCache.set(uid, set);
+      console.log(`[pnote-komoot] Flash Invaders: ${set.size} flashed for uid=${uid.substring(0,6)}…`);
+      return set;
     } catch (e) {
-      console.error("[pnote-komoot] Flash Invaders API fetch failed", e);
+      console.error("[pnote-komoot] Flash Invaders fetch failed:", e);
       return null;
     } finally {
-      foundFetchPromise = null;
+      foundFetchPromise.delete(uid);
     }
   })();
 
-  return foundFetchPromise;
+  foundFetchPromise.set(uid, p);
+  return p;
 }
 
-// ================================================================
-//  Filtering & GeoJSON conversion
-// ================================================================
-
-function filterByBounds(invaders, bounds) {
-  const { north, south, east, west } = bounds;
-  return invaders.filter(inv => {
-    if (inv.lat == null || inv.lng == null) return false;
-    const latOk = inv.lat >= south && inv.lat <= north;
-    let lngOk;
-    if (west <= east) {
-      lngOk = inv.lng >= west && inv.lng <= east;
-    } else {
-      lngOk = inv.lng >= west || inv.lng <= east;
-    }
-    return latOk && lngOk;
-  });
-}
+// ── GeoJSON conversion ───────────────────────────────────────
 
 function toGeoJSON(invaders, foundSet) {
   return {
     type: "FeatureCollection",
-    features: invaders.map(inv => {
-      const found = foundSet ? foundSet.has(inv.id.toUpperCase()) : false;
-      return {
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [inv.lng, inv.lat]
-        },
-        properties: {
-          id: inv.id,
-          status: inv.status,
-          hint: inv.hint,
-          instagramUrl: inv.instagramUrl,
-          found: found
-        }
-      };
-    })
+    features: invaders.map(inv => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [inv.lng, inv.lat] },
+      properties: {
+        id: inv.id,
+        status: inv.status,
+        hint: inv.hint,
+        instagramUrl: inv.instagramUrl,
+        found: foundSet ? foundSet.has(String(inv.id).toUpperCase()) : false
+      }
+    }))
   };
 }
 
-// ================================================================
-//  Message listener
-// ================================================================
+// ── Message handler ──────────────────────────────────────────
 
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-
   if (msg.type === "FETCH_INVADERS") {
     (async () => {
       try {
         const all = await fetchAllInvaders();
-
-        // Fetch found invaders if uid provided
-        let foundSet = null;
-        if (msg.uid) {
-          foundSet = await fetchFoundInvaders(msg.uid);
-        }
-
-        const visible = filterByBounds(all, msg.bounds);
-        const geojson = toGeoJSON(visible, foundSet);
-
-        const foundCount = foundSet
-          ? visible.filter(inv => foundSet.has(inv.id.toUpperCase())).length
-          : 0;
-
-        console.log(`[pnote-komoot] Returning ${visible.length}/${all.length} invaders (${foundCount} found)`);
-
+        const foundSet = msg.uid ? await fetchFoundInvaders(msg.uid) : null;
+        const geojson = toGeoJSON(all, foundSet);
         sendResponse({
           geojson,
           total: all.length,
-          visible: visible.length,
-          foundInView: foundCount,
           totalFound: foundSet ? foundSet.size : 0
         });
-      } catch (err) {
-        sendResponse({ error: err.message });
+      } catch (e) {
+        sendResponse({ error: e.message });
       }
     })();
     return true;
@@ -202,7 +147,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "INVALIDATE_CACHE") {
     invadersCache = null;
-    foundCache = null;
+    foundCache.clear();
     sendResponse({ ok: true });
     return false;
   }
